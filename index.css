@@ -1,8 +1,8 @@
 /* ==================================================
-   共通スタイル
+   ページ全体で共通して使う見た目
    ================================================== */
 
-/* ページ全体の基本設定 */
+/* ページの文字や背景など、基本の見た目 */
 body {
     font-family: "ＭＳ Ｐゴシック", "MS PGothic", "Hiragino Kaku Gothic ProN",
         "Hiragino Sans", sans-serif;
@@ -11,14 +11,14 @@ body {
     background-color: #ffffff;
 }
 
-/* フォーム部品も本文と同じフォント・サイズにそろえる */
+/* ボタンや入力欄の文字を、ページ本文と同じ書体・大きさにする */
 button,
 input,
 textarea {
     font: inherit;
 }
 
-/* キーボード操作中のフォーカス位置を表示する */
+/* キーボードで操作しているとき、選んでいるボタンが分かるようにする */
 button:focus {
     outline: 1px dotted #000000;
     outline-offset: -4px;
@@ -31,10 +31,10 @@ textarea:focus {
     box-shadow: none;
 }
 
-/* スクロールバーの有無による横ずれを防ぐ */
+/* ページの高さが変わっても、スクロールバーの有無で横幅がずれないようにする */
 html {
     overflow-y: scroll;
-    /* 動的な内容追加によるスクロール位置の自動補正を無効にする */
+    /* コメントなどが追加されても、ブラウザーが表示位置を勝手に動かさないようにする */
     overflow-anchor: none;
 }
 
@@ -44,10 +44,10 @@ body:not(.comments-ready) #message-section {
 }
 
 /* ==================================================
-   日記ページ
+   日記の表示
    ================================================== */
 
-/* 日記本文を中央に広く配置する。 */
+/* 日記を中央に置き、読みやすい幅にする。 */
 #diary-section {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
@@ -55,21 +55,21 @@ body:not(.comments-ready) #message-section {
     margin: 24px auto 8px;
 }
 
-/* 選択中の日記。 */
+/* 今選んでいる日記を表示する場所。 */
 #diary-view {
     grid-column: 1;
     grid-row: 1;
     min-width: 0;
 }
 
-/* 前へ/次へボタンの行。前を左端、次を右端に配置する。 */
+/* 前後の日記へ移動するボタンを、左右に分けて並べる。 */
 .diary-entry-navigation {
     display: flex;
     justify-content: space-between;
     gap: 8px;
 }
 
-/* display:flex より hidden 属性を優先して隠す。 */
+/* ボタンの並べ方の指定があっても、非表示の指示を優先する。 */
 .diary-entry-navigation[hidden] {
     display: none;
 }
@@ -101,16 +101,16 @@ body:not(.comments-ready) #message-section {
     transform: translate(2px, 2px);
 }
 
-/* ナビゲーションが日記の上に来る時だけ下に余白を空ける。 */
+/* 移動ボタンが日記の上にある場合だけ、間に余白を入れる。 */
 .diary-entry-navigation:first-child {
     margin-bottom: 12px;
 }
 
 /* --------------------------------------------------
-   日記1件の表示（diary.js が生成）
+   日記1件の表示（diary.js が画面に作る部分）
    -------------------------------------------------- */
 
-/* 日付ヘッダー → 本文 → 画像 を縦に積む。 */
+/* 日付、本文、画像を縦に並べる。 */
 .diary-entry {
     display: flex;
     flex-direction: column;
@@ -130,14 +130,14 @@ body:not(.comments-ready) #message-section {
     order: 2;
 }
 
-/* 日付文字。折り返さず右寄せ。 */
+/* 日付は途中で改行せず、右側にそろえる。 */
 .diary-entry-date {
     flex: 0 0 auto;
     text-align: right;
     white-space: nowrap;
 }
 
-/* 日記本文。改行をそのまま表示し、行間を広めにする。 */
+/* 日記本文の改行を保ち、行間を広めにする。 */
 .diary-entry-content {
     padding: 8px 10px;
     line-height: 1.6;
@@ -148,7 +148,7 @@ body:not(.comments-ready) #message-section {
     order: 0;
 }
 
-/* 日記に添付された画像を入れる枠。 */
+/* 日記の画像を囲む部分。 */
 .diary-entry-images {
     padding: 8px;
     background: #c0c0c0;
@@ -156,7 +156,7 @@ body:not(.comments-ready) #message-section {
     order: 1;
 }
 
-/* 画像を横幅いっぱいに縦に並べる。 */
+/* 画像を1枚ずつ、枠の横幅いっぱいに並べる。 */
 .diary-entry-image-grid {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
@@ -170,10 +170,10 @@ body:not(.comments-ready) #message-section {
 }
 
 /* --------------------------------------------------
-   日記の新規投稿欄（管理者モードのみ）
+   新しい日記を書く欄（管理者モードのときだけ使用）
    -------------------------------------------------- */
 
-/* 管理者モードで表示中の日記の枠に差し込む入力部品 */
+/* 新しい日記を書く欄を、表示中の日記の場所に収める。 */
 #diary-body {
     display: block;
     width: 100%;
@@ -201,7 +201,7 @@ body:not(.comments-ready) #message-section {
 }
 
 /* --------------------------------------------------
-   コメント欄（日記の下）
+   日記の下にあるコメント欄
    -------------------------------------------------- */
 
 #message-section {

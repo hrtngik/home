@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- トップページ: 日記本文 -->
+<!-- このページでは日記とコメントを表示する。 -->
 <html>
 
 <head>
@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://wqhcznhalhpsxchkdauz.supabase.co" crossorigin>
     <link rel="icon" type="image/png" href="images/site-icon.png">
     <link rel="apple-touch-icon" sizes="180x180" href="images/apple-touch-icon.png">
-    <!-- 描画前にコメント欄の予約サイズを復元し、読込中のレイアウト移動を防ぐ -->
+    <!-- 前回のコメント欄の高さを先に戻し、読み込み中に画面がずれるのを防ぐ。 -->
     <script>
         if ("scrollRestoration" in history) {
             history.scrollRestoration = "manual";
@@ -30,27 +30,27 @@
             }
         })();
     </script>
-    <!-- 共通スタイルと日記ページ専用スタイル -->
+    <!-- ページ全体と日記・コメント欄の見た目を設定するファイル。 -->
     <link rel="stylesheet" href="index.css">
 </head>
 
 <body>
 
     <main id="diary-section">
-        <!-- 日記本文 -->
+        <!-- 選択中の日記を表示する場所。 -->
         <section id="diary-view" aria-label="選択中の日記">
-            <!-- 前後の日記へ移動するボタン。日記が読み込まれるまで非表示。 -->
+            <!-- 前後の日記へ移動するボタン。日記を読み込むまでは表示しない。 -->
             <nav class="diary-entry-navigation" aria-label="日記の移動" hidden>
                 <button type="button" data-diary-direction="previous">◂</button>
                 <button type="button" data-diary-direction="next">▸</button>
                 <button id="diary-add" type="button" hidden>追加</button>
             </nav>
-            <!-- 日記1件分の表示先 -->
+            <!-- 選んだ日記の内容を表示する場所。 -->
             <div id="diary-list"></div>
         </section>
     </main>
 
-    <!-- 日記の下にコメント一覧と投稿欄を表示する -->
+    <!-- 日記の下にコメントの入力欄、コメント一覧、古いコメントのまとまりを表示する。 -->
     <section id="message-section" aria-label="コメント">
         <div id="message-layout">
             <div id="message-form">
@@ -66,7 +66,7 @@
         </div>
     </section>
 
-    <!-- 読込順: Supabaseライブラリ → 接続設定 → 日記 → コメント -->
+    <!-- 読み込む順番。接続に使うライブラリーと設定を先に読み、その後に日記とコメントの処理を読み込む。 -->
     <script>
         window.markPageSectionReady = function (section) {
             document.body.classList.add(section + "-ready");

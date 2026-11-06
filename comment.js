@@ -1,9 +1,8 @@
 // ==================================================
-// コメント機能
+// コメントの表示・投稿に関する処理
 // ==================================================
 
-// 画面要素
-// 投稿欄とチャット表示領域を最初に取得する。
+// 投稿欄やコメント一覧など、画面にある部品を取得する。
 const message = document.getElementById("message");
 const chat = document.getElementById("chat");
 const olderMessagesContainer = document.getElementById("chat-older-messages");
@@ -17,24 +16,24 @@ window.addEventListener("storage", function (event) {
         updateOlderMessagesVisibility();
     }
 });
-// ページ再表示時のレイアウト移動を抑えるため、高さを保存する。
+// ページを開き直したときにコメント欄の高さを保ち、画面がずれるのを防ぐ。
 const reservedMessageLayoutHeightKey = "message-layout-reserved-height";
-// 前回のページ離脱時に保存した値を読み込み、初期描画時の高さとして再利用する。
+// 前回ページを離れるときに記録したコメント欄の高さを読み込む。
 const reservedMessageLayoutHeight =
     sessionStorage.getItem(reservedMessageLayoutHeightKey);
-// チャット領域の予約高をCSSカスタムプロパティに戻し、描画の揺れを防ぐ。
+// 前回の高さをページの見た目に反映し、読み込み中に欄の大きさが変わらないようにする。
 if (reservedMessageLayoutHeight !== null) {
     document.documentElement.style.setProperty(
         "--message-layout-reserved-height",
         reservedMessageLayoutHeight
     );
 }
-// 前回の領域高が保存されている場合だけ、予約用クラスを有効にする。
+// 高さが記録されているときだけ、その高さを使うための設定を有効にする。
 if (reservedMessageLayoutHeight !== null) {
     document.body.classList.add("message-layout-size-reserved");
 }
 function saveMessageLayoutSize() {
-    // 読み込み前の不完全なサイズや、対象要素がない状態は保存しない。
+    // コメント欄が見つからない場合や、コメントの読み込みが終わる前は記録しない。
     const messageSection = document.getElementById("message-section");
     if (messageSection && document.body.classList.contains("comments-ready")) {
         sessionStorage.setItem(
@@ -43,28 +42,29 @@ function saveMessageLayoutSize() {
         );
     }
 }
-// ページが隠れたり閉じたりする直前に現在の高さを記録する。
+// ページを閉じる、または別のページへ移る直前に、現在のコメント欄の高さを記録する。
 window.addEventListener("pagehide", saveMessageLayoutSize);
 
 // --------------------------------------------------
-// コメントの表示設定
+// コメントを何件ずつ表示するかの設定
 // --------------------------------------------------
 
-// 直近表示では画面上に収まる行数を目安にし、過去分の取得単位を別に管理する。
-const recentMessageLineLimit = 45;
+// 最近のコメントは合計30行を目安に表示し、それより古いコメントは50件ずつまとめる。
+const recentMessageLineLimit = 30;
 const olderMessageChunkSize = 50;
+// 古いコメントの日時などを調べるときは、通信回数を減らすため一度に最大1000件取得する。
 const olderMessageFetchSize = 1000;
 
-// 新しい投稿と、過去投稿の折りたたみグループを別々の領域に配置する。
+// 最近のコメントと、折りたたんで表示する古いコメントを別々に入れる場所を作る。
 const recentMessagesContainer = document.createElement("div");
 
-// 非同期再読込の世代番号を保持する。
+// 読み込みを始めるたびに番号を増やし、古い読み込み結果が後から表示されないようにする。
 let messageLoadVersion = 0;
-// 直近の投稿だけを灰色のコメント欄に配置する。
+// 最近のコメントを表示する場所を、コメント欄の中に用意する。
 chat.replaceChildren(recentMessagesContainer);
 
 function formatMessageDate(row) {
-    // DBの日時をローカル時刻で表示し、時分秒は常に2桁にそろえる。
+    // 保存されている日時をこの端末の時刻に直し、数字をそろえて読みやすく表示する。
     const date = new Date(row.created_at);
 
     return (
@@ -78,7 +78,7 @@ function formatMessageDate(row) {
 }
 
 function createMessageElement(row) {
-    // 1件のDBレコードを、本文・投稿日時を持つチャット要素に変換する。
+    // 1件のコメントから、本文と投稿日時を表示する画面の部品を作る。
     const messageElement = document.createElement("div");
     messageElement.className = "chat-message";
 
@@ -87,14 +87,14 @@ function createMessageElement(row) {
 
     const contentElement = document.createElement("div");
     contentElement.className = "chat-message-content";
-    // 先頭に付く旧形式の匿名IDと区切り文字は表示から取り除く。
+    // 古い形式のコメントにだけ付いている「英数字ID: 」を、画面には表示しない。
     const content = row.message.replace(
         /^([A-Za-z0-9]{8}|[A-Za-z0-9]{10}): /,
         ""
     );
     appendMessageContent(contentElement, content);
     if (row.is_admin) {
-        // 管理者投稿には日時の前に識別用ラベルを追加する。
+        // 管理者のコメントには、誰の投稿か分かる印を日時の前に付ける。
         const adminLabel = document.createElement("span");
         adminLabel.className = "chat-message-admin";
         adminLabel.textContent = "あ";
@@ -108,11 +108,11 @@ function createMessageElement(row) {
 }
 
 // --------------------------------------------------
-// コメントの読み込みと描画
+// コメントを読み込んで画面に表示する処理
 // --------------------------------------------------
 
 function countMessageLines(messageElement) {
-    // 折り返しを含む実際の表示行数をDOMの矩形から数える。
+    // 画面で折り返された行も含めて、このコメントが何行分を使うか数える。
     const content = messageElement.querySelector(".chat-message-content");
     const contentRange = document.createRange();
     contentRange.selectNodeContents(content);
@@ -126,7 +126,7 @@ function countMessageLines(messageElement) {
 
     const contentLineTops = [];
     contentRects.forEach(function (rect) {
-        // 同じ表示行に属する矩形をまとめ、行頭位置を一度だけ記録する。
+        // 文字ごとの位置を調べ、同じ高さにある文字は同じ行として数える。
         if (!contentLineTops.some(function (top) {
             return Math.abs(top - rect.top) < 1;
         })) {
@@ -152,7 +152,7 @@ function countMessageLines(messageElement) {
         }
     );
 
-    // 本文が空でも最低1行として扱い、日時が別行ならその分を加算する。
+    // 本文が空でも1行分とし、日時が本文と別の行にある場合はその行も数える。
     return Math.max(
         1,
         contentLineTops.length + (dateHasSeparateLine ? 1 : 0)
@@ -160,9 +160,9 @@ function countMessageLines(messageElement) {
 }
 
 function appendMessageContent(container, text) {
-    // 本文をHTMLとして扱わず、HTTP(S) URLだけをリンク化する。
+    // 投稿文をHTMLとして解釈せず、そのまま安全に表示する。http:// または https:// の文字だけはリンクにする。
     const urlPattern = /https?:\/\/[^\s<>"']+/gi;
-    // URL末尾に句読点が続いていても、リンクに含めず本文側に残す。
+    // URLの直後に句読点などが続いていたら、それらはリンクにせず文章側に残す。
     const trailingPunctuationPattern = /[.,!?;:)\]}、。，．！？；：」』】）]+$/;
     let currentIndex = 0;
     let match;
@@ -173,14 +173,14 @@ function appendMessageContent(container, text) {
         const punctuation = matchedUrl.slice(url.length);
         const startIndex = match.index;
 
-        // URLより前の文字列は通常のテキストノードとして追加する。
+        // 見つかったURLの前にある文章を、リンクにせずそのまま追加する。
         container.appendChild(
             document.createTextNode(text.slice(currentIndex, startIndex))
         );
 
         let parsedUrl;
         try {
-            // URLとして解釈できない文字列はリンクにせず、そのまま表示する。
+            // 正しいURLとして読み取れない文字は、リンクにせず文章として表示する。
             parsedUrl = new URL(url);
         } catch {
             container.appendChild(document.createTextNode(url));
@@ -191,7 +191,7 @@ function appendMessageContent(container, text) {
             continue;
         }
 
-        // 外部リンクは別タブで開き、元ページへの操作を切り離す。
+        // リンク先は別のタブで開き、このページの表示や操作に影響しないようにする。
         const link = document.createElement("a");
         link.href = parsedUrl.href;
         link.target = "_blank";
@@ -205,17 +205,17 @@ function appendMessageContent(container, text) {
         currentIndex = startIndex + matchedUrl.length;
     }
 
-    // 最後のURLより後ろに残ったテキストも欠かさず追加する。
+    // 最後に見つけたURLより後ろの文章も追加する。
     container.appendChild(document.createTextNode(text.slice(currentIndex)));
 }
 
 async function loadMessage() {
-    // 新しい読込要求に番号を割り当て、後から完了した古い要求を識別する。
+    // 読み込みごとに番号を付け、後から古い読み込みが終わっても結果を使わないようにする。
     const loadVersion = ++messageLoadVersion;
-    // 初回表示では、短いページを最下部表示中と誤判定してスクロールしない。
+    // 初めて表示するときは、ページが短いだけで「一番下を見ている」と判断しない。
     const canRestoreToBottom =
         document.body.classList.contains("comments-ready");
-    // 画面外で組み立てて一括反映し、読込途中の表示崩れを防ぐ。
+    // コメントを画面の外で準備してからまとめて表示し、読み込み中のちらつきを防ぐ。
     const stagedRecentMessages = document.createElement("div");
     const stagedOlderMessages = document.createElement("div");
     stagedRecentMessages.style.position = "fixed";
@@ -226,7 +226,7 @@ async function loadMessage() {
     stagedRecentMessages.style.visibility = "hidden";
     document.body.appendChild(stagedRecentMessages);
 
-    // 表示候補の行数、DBページ位置、過去分との境界を順次記録する。
+    // 表示する行数、次に取得する位置、古いコメントに切り替える場所を記録する。
     let lineCount = 0;
     let cursorId = null;
     let splitMetadata = [];
@@ -234,7 +234,7 @@ async function loadMessage() {
     let restoreToBottom = false;
 
     try {
-        // 直近表示の行数に届くまで、新しい投稿から順に必要分だけ取得する。
+        // 最近のコメントが目安の行数に達するまで、新しいものから順番に取得する。
         while (hasMoreMessages && splitMetadata.length === 0) {
             let query = supabaseClient
                 .from("message")
@@ -247,7 +247,7 @@ async function loadMessage() {
 
             const { data, error } = await query;
             if (error) {
-                // 取得に失敗した場合は既存の表示を置き換えない。
+                // 読み込みに失敗したときは、今画面に出ているコメントをそのまま残す。
                 console.error(error);
                 return;
             }
@@ -268,7 +268,7 @@ async function loadMessage() {
                     lineCount + messageLines > recentMessageLineLimit &&
                     lineCount > 0
                 ) {
-                    // 上限を超える最初の投稿から過去グループ側に分ける。
+                    // 目安の行数を超える場合、そのコメントから古いコメント側に分ける。
                     messageElement.remove();
                     splitMetadata = data.slice(index).map(function (entry) {
                         return { id: entry.id, created_at: entry.created_at };
@@ -281,7 +281,7 @@ async function loadMessage() {
         }
 
         if (splitMetadata.length > 0) {
-            // 境界より古い投稿は軽量なID・日時だけを取得して分類する。
+            // 最近のコメントより古いものは、まず本文を取らず、識別番号と日時だけ調べる。
             let metadataCursorId = cursorId;
             while (true) {
                 const { data, error } = await supabaseClient
@@ -308,7 +308,7 @@ async function loadMessage() {
                 start < splitMetadata.length;
                 start += olderMessageChunkSize
             ) {
-                // 過去投稿を一定件数ずつにまとめ、必要時まで本文を取得しない。
+                // 古いコメントを50件ずつに分ける。本文はグループを開くまで読み込まない。
                 createOlderMessageGroup(
                     splitMetadata.slice(start, start + olderMessageChunkSize),
                     stagedOlderMessages
@@ -317,11 +317,11 @@ async function loadMessage() {
         }
 
         if (loadVersion !== messageLoadVersion) {
-            // より新しい読込処理が始まっていたら、この結果は反映しない。
+            // この読み込みの後に新しい読み込みが始まっていたら、古い結果は表示しない。
             return;
         }
 
-        // 更新前に最下部を見ていた場合だけ、反映後も最下部へ戻す。
+        // 読み込み前に一番下を見ていた場合だけ、更新後も一番下に合わせる。
         restoreToBottom = canRestoreToBottom &&
             window.scrollY + window.innerHeight >=
             document.documentElement.scrollHeight - 2;
@@ -332,10 +332,10 @@ async function loadMessage() {
             ...stagedOlderMessages.childNodes
         );
     } finally {
-        // 成功・失敗のどちらでも仮置き用の要素を片付ける。
+        // 読み込みが成功しても失敗しても、画面外で使った仮の場所を片付ける。
         stagedRecentMessages.remove();
         if (loadVersion === messageLoadVersion) {
-            // 最新の読込が完了したら予約レイアウトを解除し、確定サイズを保存する。
+            // 最新の読み込みが終わったら仮の高さ設定を解除し、実際の高さを記録する。
             document.body.classList.add("comments-ready");
             document.documentElement.style.removeProperty(
                 "--message-layout-reserved-height"
@@ -343,7 +343,7 @@ async function loadMessage() {
             document.body.classList.remove("message-layout-size-reserved");
             saveMessageLayoutSize();
             if (restoreToBottom) {
-                // 読込前の閲覧位置が最下部だった時に限ってスクロールを維持する。
+                // 読み込み前に一番下を見ていたときだけ、画面を一番下へ戻す。
                 window.scrollTo(
                     0,
                     document.documentElement.scrollHeight - window.innerHeight
@@ -354,11 +354,11 @@ async function loadMessage() {
 }
 
 // --------------------------------------------------
-// 過去コメントの折りたたみ
+// 古いコメントをまとめて折りたたむ処理
 // --------------------------------------------------
 
 function createOlderMessageGroup(metadata, container = olderMessagesContainer) {
-    // 過去投稿を折りたたみ可能なまとまりとして作成する。
+    // 古いコメントを、クリックして開けるひとまとまりとして作る。
     const olderMessageGroup = document.createElement("details");
     olderMessageGroup.className = "chat-message-group";
     const groupTitle = document.createElement("summary");
@@ -378,7 +378,7 @@ function createOlderMessageGroup(metadata, container = olderMessagesContainer) {
     };
 
     groupTitle.addEventListener("click", function (event) {
-        // 展開時のブラウザー標準スクロールを止め、見出し位置を維持する。
+        // 開閉時にブラウザーが自動で画面を動かすのを止め、見出しの位置を保つ。
         event.preventDefault();
         const titleTop = groupTitle.getBoundingClientRect().top;
         olderMessageGroup.open = !olderMessageGroup.open;
@@ -390,7 +390,7 @@ function createOlderMessageGroup(metadata, container = olderMessagesContainer) {
         });
 
         if (olderMessageGroup.open && !group.messagesLoaded) {
-            // 初回展開時だけ、該当グループの本文をサーバーから取得する。
+            // 初めて開いたときに、そのグループに含まれるコメント本文を取得する。
             ensureOlderMessageGroupLoaded(group);
         }
     });
@@ -399,12 +399,12 @@ function createOlderMessageGroup(metadata, container = olderMessagesContainer) {
 }
 
 async function ensureOlderMessageGroupLoaded(group) {
-    // 取得済みなら通信せず、そのまま表示済みの内容を使う。
+    // すでに本文を読み込んでいれば、もう一度読み込まず今ある内容を使う。
     if (group.messagesLoaded) {
         return;
     }
     if (!group.loadingPromise) {
-        // 同じグループへの重複取得を防ぐため、進行中のPromiseを共有する。
+        // 同じグループを続けて開いても、読み込みが重ならないよう進行中の処理を共有する。
         group.loadingPromise = loadOlderMessageGroup(
             group.content,
             group.metadata,
@@ -419,7 +419,7 @@ async function ensureOlderMessageGroupLoaded(group) {
 }
 
 async function loadOlderMessageGroup(content, metadata, setLoaded) {
-    // グループ内の古い投稿本文をIDの範囲で限定して読み込む。
+    // このグループに入るコメントだけを、識別番号の範囲で絞って読み込む。
     content.replaceChildren();
 
     const { data, error } = await supabaseClient
@@ -431,13 +431,12 @@ async function loadOlderMessageGroup(content, metadata, setLoaded) {
         .limit(olderMessageChunkSize);
 
     if (error) {
-        // 失敗はコンソールにだけ記録する。
+        // 読み込みに失敗した理由を、開発者が確認できる場所に記録する。
         console.error(error);
         return;
     }
-
     content.replaceChildren();
-    // DBから返った新しい順を保ってDOMに追加し、次回取得を不要にする。
+    // 取得した順番のままコメントを表示し、次に開いたときは再読み込みしないようにする。
     data.forEach(function (row) {
         content.appendChild(createMessageElement(row));
     });
@@ -445,18 +444,18 @@ async function loadOlderMessageGroup(content, metadata, setLoaded) {
 }
 
 // --------------------------------------------------
-// コメントの投稿と管理者モード
+// コメントを投稿する処理と管理者モードの切り替え
 // --------------------------------------------------
 
 async function sendMessage() {
-    // 入力された本文を取得し、空文字だけの投稿は送信しない。
+    // 入力欄の文章を取り出し、何も入力されていない場合は送信しない。
     const text = message.value;
 
     if (text === "") {
         return;
     }
 
-    // 投稿時点の管理者状態をレコードに保存する。
+    // 投稿した時点で管理者モードかどうかを、コメントと一緒に保存する。
     const isAdmin = window.isAdminMode();
 
     const { error } = await supabaseClient
@@ -467,13 +466,12 @@ async function sendMessage() {
         });
 
     if (error) {
-        // 保存失敗時は入力内容を消さず、開発者コンソールに理由を残す。
+        // 保存できなかったときは入力欄を消さず、原因を開発者が確認できる場所に記録する。
         console.error(error);
         return;
     }
-
     message.value = "";
-    // 投稿成功後に入力欄を空にし、一覧をサーバーの最新状態で読み直す。
+    // 投稿できたら入力欄を空にし、保存先から最新のコメント一覧を読み直す。
     loadMessage();
 }
 
@@ -485,19 +483,19 @@ function handleAdminCommand() {
         return false;
     }
 
-    // 専用コマンドで管理者モードを切り替え、コマンド自体は投稿しない。
+    // /admin または /admin off が入力されたら管理者モードを切り替え、その文字はコメントとして投稿しない。
     window.setAdminMode(enableAdmin);
     message.value = "";
     return true;
 }
 
 message.addEventListener("input", function () {
-    // 貼り付けなどで入った改行も削除する。
+    // 貼り付けなどで改行が入っても、入力欄には残さない。
     if (!/[\r\n]/.test(message.value)) {
         return;
     }
 
-    // 改行削除前後でカーソルと選択範囲がずれないよう位置を補正する。
+    // 改行を消したあとも、カーソルや選択中の範囲が元の文章の位置に合うよう調整する。
     const start = message.selectionStart;
     const end = message.selectionEnd;
     const valueBeforeStart = message.value.slice(0, start);
@@ -510,7 +508,7 @@ message.addEventListener("input", function () {
 });
 
 message.addEventListener("keydown", function (event) {
-    // Enter操作はIME変換確定のEnterと区別してから処理する。
+    // 日本語入力の変換を確定するためのEnterではなく、送信のEnterだけを処理する。
     if (event.key !== "Enter" || event.isComposing) {
         return;
     }
@@ -521,7 +519,8 @@ message.addEventListener("keydown", function (event) {
     }
 
     event.preventDefault();
-    // Enterで送信し、修飾キー付きEnterでは送信も改行もしない。
+    // Shift、Ctrl、Alt、Commandキーと一緒にEnterを押した場合は送信しない。
+    // それ以外のEnterでは、入力欄に改行を入れずコメントを送信する。
     if (event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) {
         return;
     }
@@ -529,14 +528,14 @@ message.addEventListener("keydown", function (event) {
 });
 
 document.getElementById("send").addEventListener("click", function () {
-    // 送信ボタンからも管理者切替コマンドを認識してから通常投稿を試す。
+    // 送信ボタンでも管理者切り替えの文字を先に確認し、該当しなければコメントを送信する。
     if (handleAdminCommand()) {
         return;
     }
     sendMessage();
 });
 
-// 新規投稿の通知を受けたら、直近表示と過去グループをまとめて再読込する。
+// 新しいコメントが保存された知らせを受け取ったら、コメント一覧を読み直す。
 supabaseClient
     .channel("message-changes")
     .on(
@@ -552,7 +551,7 @@ supabaseClient
     )
     .subscribe();
 
-// 初回表示時にDBから投稿を取得してチャットを描画する。
+// ページを開いたときに保存先からコメントを読み込み、画面に表示する。
 loadMessage().finally(function () {
     window.markPageSectionReady("comments");
 });

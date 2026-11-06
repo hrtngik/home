@@ -1,6 +1,6 @@
-// 日記機能。ページによって存在しない要素があるため、使用前に存在を確認する。
+// 日記の表示や投稿を行う。ページによっては日記用の部品がないため、使う前に確認する。
 
-// 新規日記の入力部品(管理者モードの時だけ表示中の日記の枠に差し込む)
+// 新しい日記を書くための入力欄やボタン。管理者モードで追加操作をしたときに画面へ表示する。
 const diaryBody = document.createElement("textarea");
 const diaryConfirmButton = document.createElement("button");
 const diaryEditorStatus = document.createElement("span");
@@ -17,33 +17,33 @@ diaryConfirmButton.type = "button";
 diaryConfirmButton.textContent = "確定";
 diaryEditorStatus.id = "diary-editor-status";
 diaryEditorStatus.setAttribute("aria-live", "polite");
-// 送信中の二重実行を防ぐフラグ
+// 保存処理が進んでいる間、同じ日記を重ねて保存しないための印。
 let diarySaving = false;
-// 「新しく日記を追加」で入力欄を開いている間だけtrue
+// 新しい日記の入力欄を開いている間だけ true になる。
 let diaryEditing = false;
 const diaryAddButton = document.getElementById("diary-add");
-// 閲覧画面の要素（index.html）
+// index.html に用意されている日記表示欄と移動ボタンを取得する。
 const diaryList = document.getElementById("diary-list");
 const diaryEntryNavigation = document.querySelector(".diary-entry-navigation");
-// 前後の日記へ移動するボタン
+// 前の日記・次の日記へ移動するボタン。
 const diaryNavigationButtons = document.querySelectorAll(
     "#diary-view [data-diary-direction]"
 );
-// 取得済みの日記（新しい順）
+// 保存先から読み込んだ日記。新しい日記から順に並ぶ。
 let diaryEntries = [];
-// 生成済みDOMのキャッシュ（未生成はnull）
+// 一度作った日記の表示部品を覚えておく。まだ作っていないものは null。
 let diaryArticles = [];
-// 現在表示中の日記の添字
+// 今表示している日記が、並び順の何番目にあるか。
 let selectedDiaryIndex = 0;
-// 縮小後の画像サイズ(px)とJPEG品質(0〜1)
+// 画面に表示する画像の大きさと、JPEGとして保存するときの画質。
 const diaryImageWidth = 360;
 const diaryImageHeight = 270;
 const diaryImageQuality = 0.75;
 
-// 日記タイトル(例: 2026/10/05 12:00:00)から画像ファイル名用の日付(例: 261005)を作る。
-// 日付として読めないタイトルは null を返し、画像なし扱いにする。
+// 日記のタイトル（例: 2026/10/05 12:00:00）から、画像名に使う日付（例: 261005）を取り出す。
+// タイトルの先頭が日付でなければ null を返す。その場合、この日記には画像を表示しない。
 function getDiaryImageDate(title) {
-    // タイトルの日付を画像ファイル名用のYYMMDD形式にする。
+    // タイトルに「|」があれば、その前の部分を日付として調べる。
     const dateTitle = title.split("|", 1)[0];
     const match = dateTitle.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})/);
     if (!match) {
@@ -54,18 +54,19 @@ function getDiaryImageDate(title) {
     return year.slice(-2) + month.padStart(2, "0") + day.padStart(2, "0");
 }
 
-// images/YYMMDD-NN.jpg を読み込み、縮小画像の読込完了後に解決するPromiseを返す。
-// JPGが存在しなければ null で解決する(=連番の終わり)。縮小に失敗したら reject する。
+// images/YYMMDD-NN.jpg という名前の画像を読み込み、画面用に小さくした画像を返す。
+// 指定した番号の画像がなければ null を返す（次の画像がないという意味）。
+// 小さくする処理に失敗した場合は、失敗したことを呼び出し元に伝える。
 function loadDiaryImage(date, sequence) {
     return new Promise(function (resolve, reject) {
         const image = document.createElement("img");
-        // 連番は2桁(01, 02, ...)
+        // ファイル名の番号は01、02のように2桁にする。
         const fileNumber = String(sequence).padStart(2, "0");
 
         image.alt = "";
-        // 画面外でも即座に読み込む(縮小処理に必要なため)。
+        // 画像をすぐ読み込む。画面に表示する前に小さくする必要があるため。
         image.loading = "eager";
-        // 元画像の読込成功時: canvasで縮小し、縮小後の画像が読めてから表示用に返す。
+        // 元画像が読み込めたら、小さい画像を作り、その画像も準備できてから返す。
         image.addEventListener("load", function handleSourceLoad() {
             image.removeEventListener("load", handleSourceLoad);
             try {
@@ -77,7 +78,7 @@ function loadDiaryImage(date, sequence) {
                     throw new Error("Canvas 2D context is unavailable.");
                 }
 
-                // 画像全体を360x270に伸縮して描画する。
+                // 画像全体を指定した大きさに合わせる。
                 context.drawImage(
                     image,
                     0,
@@ -102,7 +103,7 @@ function loadDiaryImage(date, sequence) {
                 reject(error);
             }
         });
-        // JPGが存在しない場合は、次の連番画像がないものとして扱う。
+        // 画像が見つからなければ、これより後の番号の画像も探さない。
         image.addEventListener("error", function () {
             resolve(null);
         }, { once: true });
@@ -110,9 +111,9 @@ function loadDiaryImage(date, sequence) {
     });
 }
 
-// 日記画像(01, 02, ...)を順に探し、読み込み完了ごとに表示する。
+// 日付に合う画像を01、02…の順に探し、見つかった画像から順に表示する。
 async function appendDiaryImages(article, title) {
-    // 日付が読めないタイトルでは何もしない。
+    // タイトルから日付を取り出せない場合は、画像を探さない。
     const date = getDiaryImageDate(title);
     if (!date) {
         return;
@@ -136,19 +137,19 @@ async function appendDiaryImages(article, title) {
         }
 
         imageList.appendChild(image);
-        // 最初の画像が準備できた時点で表示し、後続画像は準備でき次第追加する。
+        // 最初の画像が用意できたら枠ごと表示し、残りの画像は準備できるたびに追加する。
         if (!imageFrame.isConnected) {
             article.appendChild(imageFrame);
         }
     }
 }
 
-// 管理者モードかどうか。localStorage の "admin" を見る(comment.js からも利用される)。
+// 管理者モードが有効かを調べる。設定はこのブラウザーに保存され、comment.js からも使われる。
 window.isAdminMode = function () {
     return localStorage.getItem("admin") === "true";
 };
 
-// 管理者モードのON/OFFを保存して通知する(comment.js の admin コマンドから呼ばれる)。
+// 管理者モードの設定を保存し、画面のほかの処理にも切り替わったことを知らせる。
 window.setAdminMode = function (enabled) {
     if (enabled) {
         localStorage.setItem("admin", "true");
@@ -158,13 +159,13 @@ window.setAdminMode = function (enabled) {
     window.dispatchEvent(new Event("admin-mode-change"));
 };
 
-// 入力内容の行数に合わせて日記入力欄の高さを調整する。
+// 入力した文章がすべて見えるように、日記の入力欄の高さを調整する。
 function resizeDiaryBody() {
     diaryBody.style.height = "auto";
     diaryBody.style.height = diaryBody.scrollHeight + "px";
 }
 
-// 入力欄は、追加ボタンで開いている間だけ最新の日記の枠に差し込む。
+// 新しい日記の入力欄を、最新の日記の表示場所に出したり、元の表示に戻したりする。
 function updateDiaryEditor() {
     const article = diaryList && diaryList.firstElementChild;
     if (!article) {
@@ -201,7 +202,7 @@ function updateDiaryEditor() {
     }
 }
 
-// 確定ボタンは、入力欄を開いている間だけ追加ボタンのあった位置(日記の移動行の右端)に表示する。
+// 日記の入力中だけ、確定ボタンを日記移動ボタンの行に表示する。
 function updateDiaryConfirmButton() {
     if (window.isAdminMode() && diaryEditing) {
         diaryEntryNavigation.append(diaryConfirmButton);
@@ -210,7 +211,7 @@ function updateDiaryConfirmButton() {
     }
 }
 
-// 追加ボタンは、管理者モードで最新の日記を見ていて入力欄が閉じている時だけ表示する。
+// 追加ボタンは、管理者モードで最新の日記を見ており、入力欄を開いていないときだけ表示する。
 function updateDiaryAddButton() {
     if (diaryAddButton) {
         diaryAddButton.hidden =
@@ -218,7 +219,7 @@ function updateDiaryAddButton() {
     }
 }
 
-// 入力欄・確定ボタン・追加ボタンの表示をまとめて更新する。
+// 管理者モードや入力状態に合わせて、日記の入力欄と関連ボタンの表示を更新する。
 function updateDiaryAdminUi() {
     if (!window.isAdminMode()) {
         diaryEditing = false;
@@ -229,7 +230,7 @@ function updateDiaryAdminUi() {
     updateDiaryNavigationButtons();
 }
 
-// 確定ボタン: 入力された本文を送信時点の日時をタイトルにして保存する。
+// 日記の本文とタイトルを保存する。入力欄が空の場合や、すでに保存中の場合は何もしない。
 async function submitDiary() {
     const content = diaryBody.value.trim();
     const title = diaryTitleInput.value.trim();
@@ -245,7 +246,7 @@ async function submitDiary() {
     diarySaving = false;
     diaryConfirmButton.disabled = false;
 
-    // 失敗時は本文を残して再送信できるようにする。
+    // 保存に失敗した場合は入力内容を残し、もう一度試せるようにする。
     if (error) {
         console.error(error);
         return;
@@ -276,7 +277,7 @@ window.addEventListener("storage", function (event) {
         updateDiaryAdminUi();
     }
 });
-// 日記タイトル(日付)を「2026/10/05 12:00:00」の形式で作る。
+// 日付を「2026/10/05 12:00:00」の形式の文字列にする。
 function formatDiaryTitleDate(date) {
     return (
         date.getFullYear() + "/" +
@@ -289,11 +290,11 @@ function formatDiaryTitleDate(date) {
     );
 }
 
-// 日記1件分の表示用article要素を作る(日付ヘッダー・本文・画像)。
+// 日記1件を表示する部品を作る。日付、本文、画像を入れる場所を用意する。
 function createDiaryEntry(entry) {
     const article = document.createElement("article");
     article.className = "diary-entry";
-    // タイトルに「|」がある場合は、その前までを日付として表示する。
+    // タイトルに「|」があれば、その前の部分だけを日付として表示する。
     const date = entry.title.split("|", 1)[0];
     const header = document.createElement("div");
     header.className = "diary-entry-header";
@@ -303,13 +304,13 @@ function createDiaryEntry(entry) {
     header.appendChild(entryDate);
     const content = document.createElement("div");
     content.className = "diary-entry-content";
-    // 投稿本文をHTMLとして解釈させない。
+    // 本文をHTMLとして扱わず、入力された文字のまま表示する。
     content.textContent = entry.content;
     article.append(header, content);
     return article;
 }
 
-// 前後ボタンの移動先と表示を更新する。入力中は新しい日記が最新になるため、「前」は現在の最新日記を指す。
+// 前後の日記へ移動するボタンの表示を更新する。日記を入力中なら「前」は最新の日記へ移動する。
 function updateDiaryNavigationButtons() {
     const index = diaryEditing ? -1 : selectedDiaryIndex;
     diaryNavigationButtons.forEach(function (button) {
@@ -327,21 +328,21 @@ function updateDiaryNavigationButtons() {
     });
 }
 
-// index番目の日記を表示し、前後ボタンを更新する。
+// 指定された順番の日記を表示し、前後の移動ボタンも更新する。
 function renderDiarySelection(index) {
-    // 範囲外・数値でない添字は無視する。
+    // 指定された番号が日記の範囲外、または整数でなければ何もしない。
     if (!Number.isInteger(index) || index < 0 || index >= diaryEntries.length) {
         return;
     }
 
-    // 別の日記へ移る時は入力欄を閉じ、元の本文表示に戻してから切り替える。
+    // 別の日記へ移るときは入力欄を閉じ、表示を日記本文に戻す。
     if (diaryEditing) {
         diaryEditing = false;
         updateDiaryEditor();
         updateDiaryConfirmButton();
     }
     selectedDiaryIndex = index;
-    // 画像の探索を待たずに本文を先に表示する。
+    // 画像の読み込みを待たず、日付と本文を先に表示する。
     if (!diaryArticles[index]) {
         const entry = diaryEntries[index];
         diaryArticles[index] = createDiaryEntry(entry);
@@ -350,22 +351,23 @@ function renderDiarySelection(index) {
         });
     }
 
-    // 配列は新しい順なので、「前」は添字+1、「次」は添字-1。移動先がなければボタンを隠し、あれば移動先の日付を表示する。
+    // 日記は新しい順に並んでいるため、「前」はひとつ古い日記、「次」はひとつ新しい日記。
+    // 移動先がなければボタンを隠し、ある場合はその日付をボタンに表示する。
     updateDiaryNavigationButtons();
     diaryList.replaceChildren(diaryArticles[index]);
     updateDiaryAdminUi();
 }
 
-// 日記がない・読み込めない場合に、前後ボタンを隠す。
+// 日記がない場合や読み込みに失敗した場合、前後の日記へ移動するボタンを隠す。
 function hideDiaryNavigation() {
     diaryNavigationButtons.forEach(function (button) {
         button.closest(".diary-entry-navigation").hidden = true;
     });
 }
 
-// 日記を新しい順に全件取得し、最新の日記を表示する。
+// 保存先から日記を新しい順に読み込み、最新の日記を表示する。
 async function loadDiaries() {
-    // 閲覧用の要素がないページでは何もしない。
+    // このページに日記の表示場所がなければ、読み込みを行わない。
     if (!diaryList) {
         return;
     }
@@ -381,12 +383,12 @@ async function loadDiaries() {
         return;
     }
     diaryEntries = data;
-    // 表示キャッシュを日記の件数分だけ空(null)で用意する。
+    // 日記ごとの表示部品を覚えておく場所を用意する。まだ作っていない部品は null にする。
     diaryArticles = data.map(function () {
         return null;
     });
 
-    // 日記があれば最新(先頭)を表示し、日記がない場合は前後ボタンを隠す。
+    // 日記があれば最新のものを表示する。日記がなければ移動ボタンを隠す。
     if (diaryEntries.length > 0) {
         renderDiarySelection(0);
         diaryEntryNavigation.hidden = false;
@@ -395,17 +397,17 @@ async function loadDiaries() {
     }
 }
 
-// 前へ/次へボタン: 新しい順の配列で前=+1、次=-1 だけ添字を動かして表示する。
+// 前後のボタンが押されたら、表示する日記をひとつ古い、または新しいものへ切り替える。
 diaryNavigationButtons.forEach(function (button) {
     button.addEventListener("click", function () {
         const indexOffset = button.dataset.diaryDirection === "previous" ? 1 : -1;
-        // 入力中の「前」は現在の最新日記(添字0)へ移る。
+        // 入力中に「前」を押した場合は、最新の日記へ移動する。
         const baseIndex = diaryEditing ? -1 : selectedDiaryIndex;
         renderDiarySelection(baseIndex + indexOffset);
     });
 });
 
-// ページ読み込み時に日記を取得して表示する。
+// ページを開いたときに日記を読み込んで表示する。
 loadDiaries().finally(function () {
     window.markPageSectionReady("diary");
 });
